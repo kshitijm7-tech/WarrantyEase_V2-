@@ -78,6 +78,10 @@ class DatabaseManager {
     if (dbUrl && (dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://'))) {
       try {
         console.log('[DB] Connecting to PostgreSQL at DATABASE_URL...');
+        // pg turns DATE into a JS Date at local midnight, which breaks the
+        // 'YYYY-MM-DD' contract the API and UI rely on (and shifts the day in
+        // negative UTC offsets). Keep the raw calendar text instead.
+        pg.types.setTypeParser(1082, (value: string) => value);
         // WarrantyEase keeps its tables in a dedicated schema. Another project
         // sharing this database therefore cannot collide with, or drop, them.
         this.pgPool = new pg.Pool({
