@@ -1,8 +1,11 @@
+// Loaded first on purpose: modules below read process.env at import time, and
+// ES module imports are evaluated before this file's body, so a dotenv.config()
+// call further down would run too late for them.
+import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 import { db } from './server/db.js';
 import { storage } from './server/storage.js';
 import { authRouter } from './server/routes/auth.js';
@@ -13,8 +16,6 @@ import { dashboardRouter } from './server/routes/dashboard.js';
 import { ocrRouter } from './server/routes/ocr.js';
 import { generateDueNotificationsForAllUsers, requireCronSecret } from './server/reminders.js';
 import { authConfig } from './server/auth.js';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

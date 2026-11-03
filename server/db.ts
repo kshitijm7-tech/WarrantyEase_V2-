@@ -327,19 +327,42 @@ class DatabaseManager {
     return null;
   }
 
-  public async updateUser(id: string, name: string): Promise<User | null> {
+  public async updateUser(id: string, name: string, email?: string): Promise<User | null> {
     const now = new Date().toISOString();
+    const newEmail = email ? email.trim().toLowerCase() : null;
     if (this.isPostgres && this.pgPool) {
-      const res = await this.pgPool.query(
-        `UPDATE users SET name = $1, updated_at = $2 WHERE id = $3 RETURNING *`,
-        [name, now, id]
-      );
-      return res.rows[0] || null;
+      try {
+        const res = await this.pgPool.query(
+          `UPDATE users SET name = $1, email = COALESCE($2, email), updated_at = $3 WHERE id = $4 RETURNING *`,
+          [name, newEmail, now, id]
+        );
+        return res.rows[0] || null;
+      } catch (err: any) {
+        // uq_users_email: the address already belongs to another account.
+        // Keep the stored email rather than failing the sign-in.
+        if (err?.code !== '23505') throw err;
+        const res = await this.pgPool.query(
+          `UPDATE users SET name = $1, updated_at = $2 WHERE id = $3 RETURNING *`,
+          [name, now, id]
+        );
+        return res.rows[0] || null;
+      }
     } else if (this.sqliteDb) {
-      this.sqliteDb.prepare(`UPDATE users SET name = ?, updated_at = ? WHERE id = ?`).run(name, now, id);
+      try {
+        this.sqliteDb
+          .prepare(`UPDATE users SET name = ?, email = COALESCE(?, email), updated_at = ? WHERE id = ?`)
+          .run(name, newEmail, now, id);
+      } catch {
+        this.sqliteDb.prepare(`UPDATE users SET name = ?, updated_at = ? WHERE id = ?`).run(name, now, id);
+      }
       return this.getUserById(id);
     }
     return null;
+  }
+
+  /** Clerk users start with `<id>@clerk.user` until a real address is known. */
+  private isPlaceholderClerkEmail(email: string | null | undefined): boolean {
+    return !email || email.trim().toLowerCase().endsWith('@clerk.user');
   }
 
   public async upsertClerkUser(id: string, email: string, name: string): Promise<User> {
@@ -350,10 +373,19 @@ class DatabaseManager {
     // Check if user already exists by ID
     const existingById = await this.getUserById(id);
     if (existingById) {
-      if (displayName && existingById.name !== displayName && displayName !== 'Clerk User') {
-        return (await this.updateUser(id, displayName)) || existingById;
-      }
-      return existingById;
+      const nextName =
+        displayName && displayName !== 'Clerk User' && existingById.name !== displayName
+          ? displayName
+          : existingById.name;
+      // Replace the placeholder address once Clerk reports a real one.
+      const nextEmail =
+        !this.isPlaceholderClerkEmail(normalizedEmail) &&
+        normalizedEmail !== existingById.email?.toLowerCase()
+          ? normalizedEmail
+          : undefined;
+
+      if (nextName === existingById.name && !nextEmail) return existingById;
+      return (await this.updateUser(id, nextName, nextEmail)) || existingById;
     }
 
     // Insert Clerk authenticated user
