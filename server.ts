@@ -11,6 +11,8 @@ import { documentsRouter } from './server/routes/documents.js';
 import { notificationsRouter } from './server/routes/notifications.js';
 import { dashboardRouter } from './server/routes/dashboard.js';
 import { ocrRouter } from './server/routes/ocr.js';
+import { generateDueNotificationsForAllUsers, requireCronSecret } from './server/reminders.js';
+import { authConfig } from './server/auth.js';
 
 dotenv.config();
 
@@ -23,8 +25,9 @@ const HOST = '0.0.0.0';
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
 
-  // Initialize database schema
+  // Initialize database schema (runs pending migrations)
   await db.init();
 
   // Standard middleware
@@ -46,8 +49,9 @@ async function startServer() {
       status: 'healthy',
       app: 'WarrantyEase',
       version: '1.0.0',
-      database: db.isPostgres ? 'AntiDeploy PostgreSQL' : 'Local SQLite',
-      storage: storage.isS3 ? 'AntiDeploy Private S3 Bucket' : 'Local Secure Vault',
+      database: db.isPostgres ? 'PostgreSQL' : 'Local SQLite (development fallback)',
+      storage: storage.isS3 ? 'Private S3 bucket' : 'Local disk (development fallback)',
+      auth: authConfig.clerk_enabled ? 'clerk' : authConfig.local_auth ? 'local' : 'disabled',
       uptime_seconds: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
@@ -56,16 +60,20 @@ async function startServer() {
   app.get('/health', healthHandler);
   app.get('/api/v1/health', healthHandler);
 
-  // Scheduled reminder trigger endpoint (compatible with AntiDeploy Cron)
-  app.post('/api/v1/cron/reminders', async (req, res) => {
-    // AntiDeploy cron sends header 'x-antideploy-cron: 1'
-    const cronHeader = req.headers['x-antideploy-cron'];
-    const authHeader = req.headers.authorization;
-    const cronSecret = process.env.CRON_SECRET || process.env.JWT_SECRET;
-
-    console.log('[Cron] Received scheduled reminders trigger.');
-    res.json({ success: true, message: 'Automated reminder evaluation completed.', timestamp: new Date().toISOString() });
-  });
+  // Scheduled reminder trigger, protected by CRON_SECRET. The platform cron job
+  // may call it with either method, so both are registered on the same handler.
+  const cronReminderHandler = async (_req: express.Request, res: express.Response) => {
+    try {
+      const result = await generateDueNotificationsForAllUsers();
+      console.log('[Cron] Reminder run:', JSON.stringify(result));
+      res.json({ success: true, ...result, timestamp: new Date().toISOString() });
+    } catch (err) {
+      console.error('[Cron] Reminder run failed:', err);
+      res.status(500).json({ success: false, error: 'Reminder generation failed.' });
+    }
+  };
+  app.post('/api/v1/cron/reminders', requireCronSecret, cronReminderHandler);
+  app.get('/api/v1/cron/reminders', requireCronSecret, cronReminderHandler);
 
   // Mount API routers under /api/v1
   app.use('/api/v1/auth', authRouter);
@@ -84,7 +92,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
+    // dist-server/server.js lives beside dist/, so resolve from the project root
+    const distPath = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

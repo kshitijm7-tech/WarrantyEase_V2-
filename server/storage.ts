@@ -1,4 +1,10 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import fs from 'fs';
 import path from 'path';
@@ -101,6 +107,27 @@ class StorageService {
 
     // Local route: will be served by authorized streaming endpoint
     return { url: `/api/v1/documents/stream/${encodeURIComponent(objectKey)}`, isSignedS3: false };
+  }
+
+  /** Whether the stored object still exists (a deleted/moved file must not 500). */
+  public async objectExists(objectKey: string): Promise<boolean> {
+    if (this.isS3 && this.s3Client && this.bucketName) {
+      try {
+        await this.s3Client.send(
+          new HeadObjectCommand({ Bucket: this.bucketName, Key: objectKey })
+        );
+        return true;
+      } catch (err: any) {
+        const status = err?.$metadata?.httpStatusCode;
+        if (status === 404 || err?.name === 'NotFound' || err?.Code === 'NoSuchKey') {
+          return false;
+        }
+        throw err;
+      }
+    }
+    const localPath = path.join(this.localUploadDir, objectKey);
+    const normalized = path.normalize(localPath);
+    return normalized.startsWith(this.localUploadDir) && fs.existsSync(normalized);
   }
 
   public async getLocalFileStream(objectKey: string): Promise<fs.ReadStream | null> {

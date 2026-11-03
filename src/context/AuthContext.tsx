@@ -14,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isClerkEnabled: boolean;
+  demoMode: boolean;
   login: (email: string, pass: string) => Promise<void>;
   register: (name: string, email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -26,7 +27,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 /**
  * Internal Auth bridge that synchronizes Clerk user session with backend PostgreSQL
  */
-function ClerkAuthBridge({ children }: { children: React.ReactNode }) {
+function ClerkAuthBridge({ children, demoMode }: { children: React.ReactNode; demoMode: boolean }) {
   const { user: clerkUser, isLoaded: isClerkLoaded, isSignedIn } = useClerkUser();
   const { getToken } = useClerkAuth();
   const clerk = useClerk();
@@ -120,6 +121,7 @@ function ClerkAuthBridge({ children }: { children: React.ReactNode }) {
         user,
         loading: !isClerkLoaded || loading,
         isClerkEnabled: true,
+        demoMode,
         login,
         register,
         logout,
@@ -135,7 +137,7 @@ function ClerkAuthBridge({ children }: { children: React.ReactNode }) {
 /**
  * Standard Auth Provider when Clerk key is not set
  */
-function LocalAuthProvider({ children }: { children: React.ReactNode }) {
+function LocalAuthProvider({ children, demoMode }: { children: React.ReactNode; demoMode: boolean }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -182,6 +184,7 @@ function LocalAuthProvider({ children }: { children: React.ReactNode }) {
         user,
         loading,
         isClerkEnabled: false,
+        demoMode,
         login,
         register,
         logout,
@@ -194,16 +197,42 @@ function LocalAuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * The demo account seeds sample records, so it is only offered when the server
+ * reports DEMO_MODE. Keeping the flag server-side avoids a dead button in
+ * production, where the endpoint is disabled.
+ */
+function useDemoMode(): boolean {
+  const [demoMode, setDemoMode] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/v1/auth/config')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((config) => {
+        if (!cancelled && config) setDemoMode(Boolean(config.demo_mode));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return demoMode;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const demoMode = useDemoMode();
+
   if (CLERK_PUBLISHABLE_KEY && CLERK_PUBLISHABLE_KEY.startsWith('pk_')) {
     return (
       <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
-        <ClerkAuthBridge>{children}</ClerkAuthBridge>
+        <ClerkAuthBridge demoMode={demoMode}>{children}</ClerkAuthBridge>
       </ClerkProvider>
     );
   }
 
-  return <LocalAuthProvider>{children}</LocalAuthProvider>;
+  return <LocalAuthProvider demoMode={demoMode}>{children}</LocalAuthProvider>;
 }
 
 export function useAuth() {

@@ -1,8 +1,17 @@
 node_modules/
 build/
 dist/
+dist-server/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
+
+# Local runtime data (SQLite fallback, local upload vault).
+data/warrantyease.db
+data/warrantyease.db-shm
+data/warrantyease.db-wal
+
+# Tesseract language data (downloaded at runtime)
+eng.traineddata

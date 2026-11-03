@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { runMigrations } from './migrate.js';
 
 export interface User {
   id: string;
@@ -69,29 +70,72 @@ class DatabaseManager {
 
   public async init() {
     const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl && process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'DATABASE_URL is not set. The deployed application requires the platform PostgreSQL database.'
+      );
+    }
     if (dbUrl && (dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://'))) {
       try {
         console.log('[DB] Connecting to PostgreSQL at DATABASE_URL...');
+        // WarrantyEase keeps its tables in a dedicated schema. Another project
+        // sharing this database therefore cannot collide with, or drop, them.
         this.pgPool = new pg.Pool({
           connectionString: dbUrl,
           ssl: dbUrl.includes('localhost') ? false : { rejectUnauthorized: false },
           max: 10,
         });
-        
-        // Test connection
+
+        // The managed pooler rejects the `options` startup parameter with 08P01,
+        // so the search path is set on each physical connection instead. pg
+        // serialises queries per connection, so this runs before user queries.
+        this.pgPool.on('connect', (client) => {
+          client.query('SET search_path TO warrantyease, public').catch((err: Error) => {
+            console.error('[DB] Could not set search_path:', err.message);
+          });
+        });
+
+        // Test connection and make sure the schema itself exists
         const client = await this.pgPool.connect();
-        client.release();
+        try {
+          await client.query('CREATE SCHEMA IF NOT EXISTS warrantyease');
+        } finally {
+          client.release();
+        }
         this.isPostgres = true;
         console.log('[DB] Connected to PostgreSQL successfully.');
-        await this.initPostgresSchema();
+        const migration = await runMigrations(this.pgPool);
+        console.log(
+          `[DB] Schema ready (applied: ${migration.applied.length || 'none'}, ` +
+            `already applied: ${migration.skipped.length})` +
+            (migration.replacedLegacyTables.length
+              ? `; replaced empty legacy tables: ${migration.replacedLegacyTables.join(', ')}`
+              : '')
+        );
         return;
       } catch (err) {
-        console.error('[DB] PostgreSQL connection failed, falling back to SQLite:', err);
+        // A failed connection or migration must never leave the pool flagged as
+        // usable: queries would then hit an empty Postgres schema. In production
+        // this is fatal, so the deploy reports the real error instead of quietly
+        // serving a half-working app.
+        this.isPostgres = false;
+        if (this.pgPool) {
+          try {
+            await this.pgPool.end();
+          } catch {
+            /* closing a broken pool is best effort */
+          }
+          this.pgPool = null;
+        }
+        if (process.env.NODE_ENV === 'production') {
+          throw err;
+        }
+        console.error('[DB] PostgreSQL unavailable, falling back to SQLite:', err);
       }
     }
 
     // Local SQLite fallback
-    console.log('[DB] Using local SQLite database (AntiDeploy DATABASE_URL not set).');
+    console.log('[DB] Using local SQLite database (development fallback).');
     const dataDir = path.resolve(process.cwd(), 'data');
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
@@ -327,6 +371,16 @@ class DatabaseManager {
       return { id, name: displayName, email: normalizedEmail, password_hash: 'clerk_authenticated', created_at: now, updated_at: now };
     }
     throw new Error('Database not initialized');
+  }
+
+  public async getAllUserIds(): Promise<string[]> {
+    if (this.isPostgres && this.pgPool) {
+      const res = await this.pgPool.query<{ id: string }>('SELECT id FROM users');
+      return res.rows.map((r) => r.id);
+    } else if (this.sqliteDb) {
+      return (this.sqliteDb.prepare('SELECT id FROM users').all() as { id: string }[]).map((r) => r.id);
+    }
+    return [];
   }
 
   // --- Warranties ---

@@ -1,8 +1,11 @@
 import { createWorker } from 'tesseract.js';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+import {
+  extractPdfText,
+  rasterizePdf,
+  withTimeout,
+  OCR_TIMEOUT_MS,
+  PDF_MAX_PAGES,
+} from './pdf.js';
 
 export interface OcrSuggestion {
   product_name?: string;
@@ -93,7 +96,7 @@ export function extractInvoiceFields(rawText: string, confidence: number = 80): 
 
   // 4. Identify Purchase Price and Currency
   const totalMatch = cleanText.match(
-    /(?:Grand\s*Total|Invoice\s*Total|Total\s*Amount|Net\s*Amount|Amount\s*Payable|Total)[:\s]*([₹$€£]|INR|USD|EUR|GBP)?\s*([0-9]{1,3}(?:[,\s][0-9]{2,3})*(?:\.[0-9]{2})?)/i
+    /(?:Grand\s*Total|Invoice\s*Total|Total\s*Amount|Net\s*Amount|Amount\s*Payable|Total)[:\s]*([₹$€£]|INR|USD|EUR|GBP)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i
   );
   if (totalMatch) {
     const rawSymbol = totalMatch[1] || '';
@@ -263,14 +266,11 @@ export async function processInvoiceOcr(
 
   try {
     if (mimeType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
-      // 1. Digital PDF extraction via pdf-parse
+      // 1. Digital PDF extraction: read the embedded text layer when there is one
       try {
-        const pdfData = await pdfParse(buffer, {
-          max: 3, // limit to first 3 pages to protect memory and processing time
-        });
-        rawText = pdfData.text || '';
+        rawText = await withTimeout(extractPdfText(buffer, PDF_MAX_PAGES), 30_000, 'PDF text extraction');
       } catch (pdfErr: any) {
-        console.warn('[OCR] PDF text stream extraction error, falling back:', pdfErr.message);
+        console.warn('[OCR] PDF text stream extraction failed:', pdfErr?.message);
       }
 
       // If PDF has readable text stream, parse it
@@ -281,10 +281,38 @@ export async function processInvoiceOcr(
           suggestions,
         };
       } else {
+        // 2. Scanned/image-only PDF: render the pages and read them with Tesseract
+        try {
+          const pages = await withTimeout(rasterizePdf(buffer, PDF_MAX_PAGES), 45_000, 'PDF page rendering');
+          if (pages.length > 0) {
+            const worker = await createWorker('eng');
+            try {
+              const pageTexts: string[] = [];
+              let confidenceSum = 0;
+              for (const pageImage of pages) {
+                const result = await withTimeout(worker.recognize(pageImage), OCR_TIMEOUT_MS, 'OCR');
+                pageTexts.push(result.data.text || '');
+                confidenceSum += result.data.confidence || 0;
+              }
+              rawText = pageTexts.join('\n');
+              confidence = Math.round(confidenceSum / pages.length);
+            } finally {
+              await worker.terminate();
+            }
+
+            if (rawText.trim().length > 0) {
+              const suggestions = extractInvoiceFields(rawText, confidence);
+              return { success: true, suggestions };
+            }
+          }
+        } catch (rasterErr: any) {
+          console.warn('[OCR] Scanned-PDF rasterization/OCR failed:', rasterErr?.message);
+        }
+
         return {
           success: false,
           error:
-            'Could not extract text from this PDF. Please ensure the PDF has readable text, or upload a clear PNG/JPEG image of the invoice.',
+            'Could not read any text from this PDF. It has no text layer, and rendering its pages produced no readable text. Upload a clearer scan (PNG/JPEG) of the invoice.',
         };
       }
     } else if (

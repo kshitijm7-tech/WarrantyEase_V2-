@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export const LandingPage: React.FC = () => {
-  const { user, loginDemo } = useAuth();
+  const { user, loginDemo, demoMode } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -156,13 +156,15 @@ export const LandingPage: React.FC = () => {
             <span>Start Free</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
-          <button
-            onClick={handleDemoClick}
-            type="button"
-            className="w-full sm:w-auto px-6 py-3 text-sm font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <span>Try Interactive Demo</span>
-          </button>
+          {demoMode && (
+            <button
+              onClick={handleDemoClick}
+              type="button"
+              className="w-full sm:w-auto px-6 py-3 text-sm font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              <span>Try Interactive Demo</span>
+            </button>
+          )}
         </div>
 
         {/* Adjacency Trust Markers */}

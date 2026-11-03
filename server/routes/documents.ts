@@ -113,7 +113,14 @@ documentsRouter.post('/:id/download-url', async (req: AuthenticatedRequest, res)
       return res.status(404).json({ error: 'Document not found or unauthorized.' });
     }
 
-    if (storage.isS3) {
+      if (storage.isS3) {
+      // A missing object must report as gone, not as a broken signed URL.
+      const exists = await storage.objectExists(doc.object_key);
+      if (!exists) {
+        return res.status(410).json({
+          error: 'The stored invoice file is no longer available in object storage.',
+        });
+      }
       const { url, isSignedS3 } = await storage.getDownloadUrl(doc.object_key, 900); // 15 mins
       return res.json({
         url,

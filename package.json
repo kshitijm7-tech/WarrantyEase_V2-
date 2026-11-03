@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
-    "start": "tsx server.ts",
+    "build": "vite build && npm run build:server",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist-server/server.js --packages=external && node -e \"require('node:fs').cpSync('server/migrations','dist-server/migrations',{recursive:true})\"",
+    "start": "node scripts/start.mjs",
+    "migrate": "tsx server/migrate-cli.ts",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true});require('node:fs').rmSync('dist-server',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "test": "tsx --test server/**/*.test.ts src/**/*.test.ts"
   },

@@ -1,9 +1,24 @@
 import { Router, Response } from 'express';
 import { db } from '../db.js';
-import { hashPassword, comparePassword, generateToken, requireAuth, AuthenticatedRequest } from '../auth.js';
+import {
+  hashPassword,
+  comparePassword,
+  generateToken,
+  requireAuth,
+  AuthenticatedRequest,
+  authConfig,
+  ALLOW_LOCAL_AUTH,
+  DEMO_MODE,
+} from '../auth.js';
 import { calculateExpiryDate } from '../../src/utils/warranty.js';
 
 export const authRouter = Router();
+
+// Public runtime auth configuration (no secrets): lets the UI show only the
+// sign-in methods this deployment actually supports.
+authRouter.get('/config', (_req, res) => {
+  res.json(authConfig);
+});
 
 function setTokenCookie(res: Response, token: string) {
   res.cookie('warrantyease_token', token, {
@@ -16,6 +31,9 @@ function setTokenCookie(res: Response, token: string) {
 }
 
 authRouter.post('/register', async (req, res) => {
+  if (!ALLOW_LOCAL_AUTH) {
+    return res.status(403).json({ error: 'Email sign-up is disabled on this deployment. Continue with Clerk.' });
+  }
   try {
     const { name, email, password } = req.body;
 
@@ -57,6 +75,9 @@ authRouter.post('/register', async (req, res) => {
 });
 
 authRouter.post('/login', async (req, res) => {
+  if (!ALLOW_LOCAL_AUTH) {
+    return res.status(403).json({ error: 'Email sign-in is disabled on this deployment. Continue with Clerk.' });
+  }
   try {
     const { email, password } = req.body;
 
@@ -148,6 +169,9 @@ authRouter.post('/sync-clerk', requireAuth, async (req: AuthenticatedRequest, re
 
 // Demo account provisioner for interactive product preview
 authRouter.post('/demo', async (req, res) => {
+  if (!DEMO_MODE) {
+    return res.status(404).json({ error: 'Demo mode is disabled on this deployment.' });
+  }
   try {
     const demoEmail = 'demo@warrantyease.app';
     let user = await db.getUserByEmail(demoEmail);

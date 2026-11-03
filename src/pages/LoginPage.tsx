@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Lock, Mail, AlertCircle, ArrowRight, Shield } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { login, loginDemo, isClerkEnabled } = useAuth();
+  const { login, loginDemo, isClerkEnabled, demoMode } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
@@ -71,14 +71,16 @@ export const LoginPage: React.FC = () => {
         {isClerkEnabled ? (
           <div className="space-y-4 flex flex-col items-center">
             <ClerkSignIn routing="path" path="/login" />
-            <button
-              type="button"
-              onClick={handleDemoSignIn}
-              disabled={demoLoading}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold"
-            >
-              {demoLoading ? 'Loading Demo...' : 'Or sign in with Demo Account'}
-            </button>
+            {demoMode && (
+              <button
+                type="button"
+                onClick={handleDemoSignIn}
+                disabled={demoLoading}
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold"
+              >
+                {demoLoading ? 'Loading Demo...' : 'Or sign in with Demo Account'}
+              </button>
+            )}
           </div>
         ) : (
           <div className="bg-white py-8 px-6 shadow-sm border border-slate-200 rounded-xl sm:px-10 space-y-6">
@@ -142,20 +144,22 @@ export const LoginPage: React.FC = () => {
               </button>
             </form>
 
-            {/* Quick Demo Login Option */}
-            <div className="pt-4 border-t border-slate-100">
-              <div className="text-center mb-3">
-                <span className="text-xs text-slate-500 font-medium">Quick Preview</span>
+            {/* Quick Demo Login Option (only when the server enables demo mode) */}
+            {demoMode && (
+              <div className="pt-4 border-t border-slate-100">
+                <div className="text-center mb-3">
+                  <span className="text-xs text-slate-500 font-medium">Quick Preview</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDemoSignIn}
+                  disabled={loading || demoLoading}
+                  className="w-full py-2.5 px-3 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <span>{demoLoading ? 'Loading Demo...' : 'Explore Interactive Demo Account'}</span>
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={handleDemoSignIn}
-                disabled={loading || demoLoading}
-                className="w-full py-2.5 px-3 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <span>{demoLoading ? 'Loading Demo...' : 'Explore Interactive Demo Account'}</span>
-              </button>
-            </div>
+            )}
 
             <div className="text-center text-[11px] text-slate-400 flex items-center justify-center gap-1">
               <Shield className="w-3 h-3 text-indigo-500" />
