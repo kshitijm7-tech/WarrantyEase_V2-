@@ -1,0 +1,6 @@
+{
+  "name": "WarrantyEase - Digital Warranty & Invoice Manager",
+  "description": "Centralized digital warranty manager to track expiration dates, securely store invoices in private cloud storage, and receive timely expiry reminders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
