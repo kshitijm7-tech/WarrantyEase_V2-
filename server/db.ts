@@ -802,13 +802,15 @@ class DatabaseManager {
 
     if (this.isPostgres && this.pgPool) {
       try {
-        await this.pgPool.query(
+        const res = await this.pgPool.query(
           `INSERT INTO notifications (id, user_id, warranty_id, reminder_type, message, is_read, deduplication_key, created_at)
            VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7)
            ON CONFLICT (deduplication_key) DO NOTHING`,
           [id, userId, warrantyId, reminderType, message, deduplicationKey, now]
         );
-        return true;
+        // ON CONFLICT DO NOTHING is not an error, so report whether a row was
+        // really written; otherwise a duplicate reminder is counted as new.
+        return (res.rowCount || 0) > 0;
       } catch (err) {
         return false;
       }
