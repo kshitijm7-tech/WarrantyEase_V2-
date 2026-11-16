@@ -75,6 +75,7 @@ export interface HealthInfo {
   version: string;
   database: string;
   storage: string;
+  auth?: string;
   uptime_seconds: number;
   timestamp: string;
 }
@@ -104,6 +105,7 @@ export interface OcrResponse {
 }
 
 let activeAuthToken: string | null = null;
+let tokenProvider: (() => Promise<string | null>) | null = null;
 
 export function setAuthToken(token: string | null) {
   activeAuthToken = token;
@@ -111,6 +113,15 @@ export function setAuthToken(token: string | null) {
 
 export function getAuthToken(): string | null {
   return activeAuthToken;
+}
+
+/**
+ * Clerk session tokens expire after about a minute. A token captured once at
+ * sign-in therefore turns into 401s a minute later, even though the user is
+ * still signed in. A provider is asked for a fresh token on every request.
+ */
+export function setTokenProvider(provider: (() => Promise<string | null>) | null) {
+  tokenProvider = provider;
 }
 
 async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -122,8 +133,16 @@ async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> 
     defaultHeaders['Content-Type'] = 'application/json';
   }
 
-  if (activeAuthToken) {
-    defaultHeaders['Authorization'] = `Bearer ${activeAuthToken}`;
+  let bearerToken = activeAuthToken;
+  if (tokenProvider) {
+    try {
+      bearerToken = (await tokenProvider()) || bearerToken;
+    } catch {
+      // Keep the last known token rather than dropping the header entirely.
+    }
+  }
+  if (bearerToken) {
+    defaultHeaders['Authorization'] = `Bearer ${bearerToken}`;
   }
 
   const response = await fetch(url, {

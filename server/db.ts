@@ -390,14 +390,24 @@ class DatabaseManager {
 
     // Insert Clerk authenticated user
     if (this.isPostgres && this.pgPool) {
-      const res = await this.pgPool.query(
-        `INSERT INTO users (id, name, email, password_hash, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at
-         RETURNING *`,
-        [id, displayName, normalizedEmail, 'clerk_authenticated', now, now]
-      );
-      return res.rows[0];
+      try {
+        const res = await this.pgPool.query(
+          `INSERT INTO users (id, name, email, password_hash, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at
+           RETURNING *`,
+          [id, displayName, normalizedEmail, 'clerk_authenticated', now, now]
+        );
+        return res.rows[0];
+      } catch (err: any) {
+        // uq_users_email: this address already belongs to another row (for
+        // example an older local account). Keep that row's email and let the
+        // Clerk user still sign in instead of failing authentication.
+        if (err?.code !== '23505') throw err;
+        const fallback = await this.updateUser(id, displayName);
+        if (fallback) return fallback;
+        throw err;
+      }
     } else if (this.sqliteDb) {
       this.sqliteDb.prepare(
         `INSERT INTO users (id, name, email, password_hash, created_at, updated_at)

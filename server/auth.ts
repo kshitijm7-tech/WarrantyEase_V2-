@@ -6,6 +6,7 @@ import { verifyToken as verifyClerkToken } from '@clerk/backend';
 import { db, User } from './db.js';
 
 const CLERK_SECRET_KEY = (process.env.CLERK_SECRET_KEY || '').trim();
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 /**
  * A published Clerk secret key looks like `sk_test_<long>` / `sk_live_<long>`.
@@ -13,21 +14,60 @@ const CLERK_SECRET_KEY = (process.env.CLERK_SECRET_KEY || '').trim();
  * treated as a configured key (it would send every request down a dead Clerk path).
  */
 export const CLERK_CONFIGURED =
-  /^sk_(test|live)_[A-Za-z0-9]{16,}$/.test(CLERK_SECRET_KEY);
+  /^sk_(test|live)_[A-Za-z0-9_-]{16,}$/.test(CLERK_SECRET_KEY);
+
+/** `sk_test_` keys belong to a development instance, `sk_live_` to a production one. */
+const CLERK_SECRET_ENVIRONMENT: 'development' | 'production' = CLERK_SECRET_KEY.startsWith(
+  'sk_live_'
+)
+  ? 'production'
+  : 'development';
+
+/**
+ * Clerk publishable keys are public. Serving the runtime key lets the frontend
+ * mount exactly the instance the server trusts, instead of whatever key happened
+ * to be baked into the bundle at build time. Empty means "use the built key".
+ */
+const CLERK_PUBLISHABLE_KEY = (
+  process.env.VITE_CLERK_PUBLISHABLE_KEY ||
+  process.env.CLERK_PUBLISHABLE_KEY ||
+  ''
+).trim();
+
+const CLERK_KEY_ENVIRONMENTS_MATCH =
+  !CLERK_PUBLISHABLE_KEY ||
+  (CLERK_SECRET_ENVIRONMENT === 'production'
+    ? CLERK_PUBLISHABLE_KEY.startsWith('pk_live_')
+    : CLERK_PUBLISHABLE_KEY.startsWith('pk_test_'));
+
+/**
+ * A Clerk development instance authenticates only the developer's own browser:
+ * it hands every other visitor a `dev_browser_unauthenticated` error and sends
+ * clerk-js into the Clerk dashboard. That cannot sign in the public, so on a
+ * deployed (NODE_ENV=production) server Clerk is only offered when it holds a
+ * matching live instance. The frontend reads this flag and renders the
+ * server-verified email + password form otherwise.
+ */
+export const CLERK_USABLE =
+  CLERK_CONFIGURED &&
+  CLERK_KEY_ENVIRONMENTS_MATCH &&
+  (NODE_ENV !== 'production' || CLERK_SECRET_ENVIRONMENT === 'production');
 
 /**
  * Local email + password auth exists for evaluation and local development only.
- * It is enabled by default just while Clerk is unconfigured, and can be forced
- * off in any environment with ALLOW_LOCAL_AUTH=false.
+ * It is enabled by default whenever Clerk cannot authenticate the public, and
+ * can be forced either way with ALLOW_LOCAL_AUTH.
  */
 export const ALLOW_LOCAL_AUTH = process.env.ALLOW_LOCAL_AUTH
   ? process.env.ALLOW_LOCAL_AUTH === 'true'
-  : !CLERK_CONFIGURED;
+  : !CLERK_USABLE;
 
 export const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
 export const authConfig = {
-  clerk_enabled: CLERK_CONFIGURED,
+  clerk_enabled: CLERK_USABLE,
+  clerk_environment: CLERK_CONFIGURED ? CLERK_SECRET_ENVIRONMENT : null,
+  clerk_publishable_key: CLERK_USABLE ? CLERK_PUBLISHABLE_KEY || null : null,
   local_auth: ALLOW_LOCAL_AUTH,
   demo_mode: DEMO_MODE,
 };

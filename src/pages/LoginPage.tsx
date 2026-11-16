@@ -163,7 +163,7 @@ export const LoginPage: React.FC = () => {
 
             <div className="text-center text-[11px] text-slate-400 flex items-center justify-center gap-1">
               <Shield className="w-3 h-3 text-indigo-500" />
-              <span>Clerk Auth Ready: Configurable via VITE_CLERK_PUBLISHABLE_KEY</span>
+              <span>Passwords are hashed and every session is verified on the server</span>
             </div>
           </div>
         )}

@@ -56,8 +56,12 @@ export default function App() {
           <Route path="/" element={<LandingPage />} />
 
           {/* Public Auth */}
+          {/* Clerk's `routing="path"` widget pushes sub-paths such as
+              /login/factor-one and /register/verify-email, so these routes need
+              a wildcard. Without it React Router matches the fallback route and
+              bounces the visitor to the landing page mid sign-in. */}
           <Route
-            path="/login"
+            path="/login/*"
             element={
               <PublicAuthRoute>
                 <LoginPage />
@@ -65,7 +69,7 @@ export default function App() {
             }
           />
           <Route
-            path="/register"
+            path="/register/*"
             element={
               <PublicAuthRoute>
                 <RegisterPage />

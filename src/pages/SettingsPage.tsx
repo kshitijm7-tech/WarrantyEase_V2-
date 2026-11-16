@@ -158,8 +158,12 @@ export const SettingsPage: React.FC = () => {
               <Shield className="w-3.5 h-3.5 text-indigo-600" />
               <span>Authentication</span>
             </div>
-            <p className="text-slate-900 font-bold">Clerk Authentication</p>
-            <p className="text-[11px] text-slate-500">Verified server-side JWT session</p>
+            <p className="text-slate-900 font-bold">
+              {health?.auth === 'local' ? 'Email & Password' : 'Clerk Authentication'}
+            </p>
+            <p className="text-[11px] text-slate-500">
+              {health?.auth === 'local' ? 'Hashed password + server session' : 'Verified server-side JWT session'}
+            </p>
           </div>
 
           <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-1">
