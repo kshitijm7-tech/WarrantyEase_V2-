@@ -12,7 +12,7 @@ AntiDeploy application.
 | --- | --- |
 | Frontend | React 19 + TypeScript + Vite + Tailwind CSS |
 | API | Node.js + Express (`server.ts`) |
-| Auth | Clerk (server-verified session tokens); local email sessions only as a gated dev fallback |
+| Auth | Clerk when the deployment holds a matching **live** instance; otherwise server-verified email + password sessions (see [Sign-in](#sign-in-fallback-vs-clerk-production-instance)) |
 | Data | PostgreSQL (AntiDeploy-managed `DATABASE_URL`), parameterised SQL, versioned migrations |
 | Files | Private S3-compatible bucket (`AWS_*`, `BUCKET_NAME`), path-style, 15-minute signed URLs |
 | OCR | Tesseract.js for images and rendered PDF pages; pdfjs + `@napi-rs/canvas` for page rendering |
@@ -51,6 +51,60 @@ The platform injects the database, storage and signing secrets. Locally they are
 
 No secret is ever sent to the browser. `GET /api/v1/health` reports only the database,
 storage and auth *modes*, never credentials.
+
+## Sign-in: fallback vs Clerk production instance
+
+`GET /api/v1/auth/config` is the single source of truth, and the UI renders only the method
+it reports, so it can never show a sign-in form that the server would reject.
+
+| Config | What the deployment does |
+| --- | --- |
+| `clerk_enabled: true` | The Clerk widget is used. Every request carries a fresh Clerk session token, verified server-side with `@clerk/backend`; ownership is keyed on the verified `sub`. |
+| `clerk_enabled: false`, `local_auth: true` | Email + password is used instead: bcrypt hashes, an httpOnly session cookie, and the same ownership rules. |
+
+### Why a Clerk development instance falls back
+
+A Clerk **development** instance (`pk_test_` / `sk_test_`, frontend API `*.clerk.accounts.dev`)
+only authenticates the developer's own browser. It requires a Clerk-dashboard "dev browser"
+cookie, and any other visitor gets `dev_browser_unauthenticated` and is sent to the Clerk
+dashboard — which is why a deployed app on a `pk_test_` key appears to be stuck right after
+signing in.
+
+The server therefore offers Clerk only when it holds a `sk_live_` key **and** the publishable
+key is not from a different environment. That is exactly the state this project is in today:
+`/api/v1/auth/config` reports `clerk_environment: "development"`, so sign-in runs on the
+email/password fallback. `ALLOW_LOCAL_AUTH=true|false` still forces either behaviour.
+
+### Switching to the real Clerk instance
+
+No code change and no redeploy of the frontend build is needed — the publishable key is served
+by the API, so only the environment changes.
+
+1. Clerk dashboard → the WarrantyEase application (`app_3LbyOokVldXL1AeXN9gAUCMMSTN`) →
+   **Production** → create the production instance.
+2. Add the deployment domain (`warrantyease.antideploy.app`) and create the CNAME record Clerk
+   shows. Wait until Clerk reports the domain as verified.
+3. Copy the production keys: `pk_live_…` (publishable) and `sk_live_…` (secret).
+4. Set both in AntiDeploy → Environment/Secrets:
+   `VITE_CLERK_PUBLISHABLE_KEY=pk_live_…` and `CLERK_SECRET_KEY=sk_live_…`.
+   Keep `ALLOW_LOCAL_AUTH` unset so the server decides.
+5. Redeploy. On boot, `requireAuth` starts accepting Clerk tokens and the config flips to
+   `clerk_enabled: true`, `local_auth: false` automatically.
+6. Verify:
+
+   ```bash
+   curl -s https://warrantyease.antideploy.app/api/v1/auth/config
+   # {"clerk_enabled":true,"clerk_environment":"production","local_auth":false,...}
+
+   BASE_URL=https://warrantyease.antideploy.app CLERK_SECRET_KEY=sk_live_... \
+     node scripts/smoke-live.mjs
+   ```
+
+`scripts/smoke-live.mjs` reads that config and switches to the Clerk path by itself; it mints
+real Clerk session tokens through a Backend API sign-in ticket, so it needs `CLERK_SECRET_KEY`
+and at least one existing Clerk user (override with `CLERK_SMOKE_USER_IDS=user_a,user_b`).
+Against a development instance the token exchange is refused by Clerk, and the script reports
+`SKIP` instead of a pass.
 
 ## Local development
 
