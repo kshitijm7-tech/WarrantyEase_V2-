@@ -214,11 +214,14 @@ check('storage is private S3', /s3/i.test(health.json.storage || ''), health.jso
 
 const authConfig = await call('/api/v1/auth/config');
 const config = authConfig.json || {};
-const mode = config.clerk_enabled ? 'clerk' : config.local_auth ? 'local' : 'none';
+// Prefer the method that can serve every visitor. Clerk is used only when it is
+// the sole option: a deployment can render the Clerk widget while still offering
+// email/password to visitors a development instance cannot authenticate.
+const mode = config.clerk_enabled && !config.local_auth ? 'clerk' : config.local_auth ? 'local' : 'none';
 check(
   'auth config reports a usable sign-in method',
   authConfig.status === 200 && mode !== 'none',
-  `clerk_enabled=${config.clerk_enabled} local_auth=${config.local_auth} clerk_environment=${config.clerk_environment ?? 'n/a'}`
+  `clerk_enabled=${config.clerk_enabled} clerk_public=${config.clerk_public} local_auth=${config.local_auth} clerk_environment=${config.clerk_environment ?? 'n/a'}`
 );
 
 if (mode === 'none') {
