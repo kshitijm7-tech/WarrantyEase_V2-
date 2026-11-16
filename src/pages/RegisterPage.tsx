@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { User, Lock, Mail, AlertCircle, ArrowRight, Shield } from 'lucide-react';
 
 export const RegisterPage: React.FC = () => {
-  const { register, isClerkEnabled } = useAuth();
+  const { register, isClerkEnabled, localAuthEnabled } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
@@ -14,6 +14,8 @@ export const RegisterPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const showPasswordForm = localAuthEnabled || !isClerkEnabled;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,12 +69,24 @@ export const RegisterPage: React.FC = () => {
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        {isClerkEnabled ? (
-          <div className="space-y-4 flex flex-col items-center">
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md space-y-5">
+        {isClerkEnabled && (
+          <div className="flex flex-col items-center">
             <ClerkSignUp routing="path" path="/register" />
           </div>
-        ) : (
+        )}
+
+        {isClerkEnabled && showPasswordForm && (
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-slate-200" />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              or register with your email
+            </span>
+            <span className="h-px flex-1 bg-slate-200" />
+          </div>
+        )}
+
+        {showPasswordForm && (
           <div className="bg-white py-8 px-6 shadow-sm border border-slate-200 rounded-xl sm:px-10 space-y-6">
             {error && (
               <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">

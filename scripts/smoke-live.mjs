@@ -18,6 +18,8 @@
  * Covers: health, session, warranty CRUD, ownership isolation, invoice upload to
  * private storage, signed download URL, OCR on a real PDF, reminder generation and
  * deduplication, unauthenticated rejection, and the cron endpoint's shared secret.
+ * Anything it creates is deleted again, including the throwaway accounts, so a
+ * repeated run leaves no rows behind.
  */
 const BASE = (process.env.BASE_URL || 'http://localhost:4000').replace(/\/$/, '');
 const stamp = Date.now();
@@ -402,6 +404,24 @@ await call(`/api/v1/warranties/${warrantyId}`, { method: 'DELETE', token: tokenA
 if (documentId) await call(`/api/v1/documents/${documentId}`, { method: 'DELETE', token: tokenA });
 const afterCleanup = await call('/api/v1/warranties', { token: tokenA });
 check('warranty deleted', afterCleanup.json.warranties?.length === 0);
+
+// The throwaway accounts themselves are deleted too, so repeated runs against a
+// production database do not accumulate users. `DELETE /api/v1/auth/account`
+// removes the caller's own account, its invoices and every owned row.
+if (mode === 'local') {
+  const deletedA = await call('/api/v1/auth/account', { method: 'DELETE', token: sessionA.token });
+  check('throwaway account deleted', deletedA.status === 200, `status ${deletedA.status}`);
+
+  const afterDelete = await call('/api/v1/auth/me', { token: sessionA.token });
+  check('deleted account can no longer authenticate', afterDelete.status === 401, `status ${afterDelete.status}`);
+
+  if (sessionB?.ok) {
+    const deletedB = await call('/api/v1/auth/account', { method: 'DELETE', token: sessionB.token });
+    check('second throwaway account deleted', deletedB.status === 200, `status ${deletedB.status}`);
+  }
+} else {
+  skip('throwaway account cleanup', 'Clerk accounts are managed in Clerk and were not created by this script');
+}
 
 const failed = results.filter((r) => !r.ok);
 console.log(`\nsign-in method: ${mode}`);

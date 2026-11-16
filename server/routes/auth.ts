@@ -5,11 +5,13 @@ import {
   comparePassword,
   generateToken,
   requireAuth,
+  clearSessionCookie,
   AuthenticatedRequest,
   authConfig,
   ALLOW_LOCAL_AUTH,
   DEMO_MODE,
 } from '../auth.js';
+import { storage } from '../storage.js';
 import { calculateExpiryDate } from '../../src/utils/warranty.js';
 
 export const authRouter = Router();
@@ -17,6 +19,9 @@ export const authRouter = Router();
 // Public runtime auth configuration (no secrets): lets the UI show only the
 // sign-in methods this deployment actually supports.
 authRouter.get('/config', (_req, res) => {
+  // The sign-in UI is chosen from this response, so a cached copy would keep
+  // offering a method the deployment no longer (or not yet) supports.
+  res.setHeader('Cache-Control', 'no-store');
   res.json(authConfig);
 });
 
@@ -148,6 +153,33 @@ authRouter.patch('/settings', requireAuth, async (req: AuthenticatedRequest, res
     });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to update settings.' });
+  }
+});
+
+/**
+ * Deletes the caller's own account and its data. Used by the smoke test (so a
+ * run does not leave throwaway accounts in a production database) and available
+ * to the UI as a real account-closure endpoint.
+ */
+authRouter.delete('/account', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  try {
+    // Remove invoices from the bucket first: deleting the rows would leave the
+    // objects behind with no record pointing at them.
+    const documents = await db.getDocuments(user.id);
+    for (const document of documents) {
+      await storage.deleteInvoice(document.object_key);
+    }
+
+    const deleted = await db.deleteUser(user.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Account not found.' });
+    }
+    clearSessionCookie(res);
+    return res.json({ success: true, message: 'Account deleted.' });
+  } catch (err) {
+    console.error('[Auth] Account deletion error:', err);
+    return res.status(500).json({ error: 'Failed to delete account.' });
   }
 });
 

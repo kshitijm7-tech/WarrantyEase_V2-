@@ -40,34 +40,33 @@ const CLERK_KEY_ENVIRONMENTS_MATCH =
     ? CLERK_PUBLISHABLE_KEY.startsWith('pk_live_')
     : CLERK_PUBLISHABLE_KEY.startsWith('pk_test_'));
 
-/**
- * A Clerk development instance authenticates only the developer's own browser:
- * it hands every other visitor a `dev_browser_unauthenticated` error and sends
- * clerk-js into the Clerk dashboard. That cannot sign in the public, so on a
- * deployed (NODE_ENV=production) server Clerk is only offered when it holds a
- * matching live instance. The frontend reads this flag and renders the
- * server-verified email + password form otherwise.
- */
-export const CLERK_USABLE =
-  CLERK_CONFIGURED &&
-  CLERK_KEY_ENVIRONMENTS_MATCH &&
-  (NODE_ENV !== 'production' || CLERK_SECRET_ENVIRONMENT === 'production');
+/** Clerk can be mounted: a secret key is configured and the key pairs agree. */
+export const CLERK_AVAILABLE = CLERK_CONFIGURED && CLERK_KEY_ENVIRONMENTS_MATCH;
 
 /**
- * Local email + password auth exists for evaluation and local development only.
- * It is enabled by default whenever Clerk cannot authenticate the public, and
- * can be forced either way with ALLOW_LOCAL_AUTH.
+ * Clerk alone can sign in *every* visitor. A development instance cannot: it
+ * authenticates only the developer's own browser and answers everybody else with
+ * `dev_browser_unauthenticated`. Such a deployment therefore keeps the Clerk
+ * widget for the owner but also offers the email + password session.
+ */
+export const CLERK_PUBLIC = CLERK_AVAILABLE && (NODE_ENV !== 'production' || CLERK_SECRET_ENVIRONMENT === 'production');
+
+/**
+ * Email + password sessions stay available whenever Clerk cannot serve the
+ * public (or is not configured at all), so a deployment is never un-signable.
+ * ALLOW_LOCAL_AUTH forces either behaviour.
  */
 export const ALLOW_LOCAL_AUTH = process.env.ALLOW_LOCAL_AUTH
   ? process.env.ALLOW_LOCAL_AUTH === 'true'
-  : !CLERK_USABLE;
+  : !CLERK_PUBLIC;
 
 export const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
 export const authConfig = {
-  clerk_enabled: CLERK_USABLE,
+  clerk_enabled: CLERK_AVAILABLE,
+  clerk_public: CLERK_PUBLIC,
   clerk_environment: CLERK_CONFIGURED ? CLERK_SECRET_ENVIRONMENT : null,
-  clerk_publishable_key: CLERK_USABLE ? CLERK_PUBLISHABLE_KEY || null : null,
+  clerk_publishable_key: CLERK_AVAILABLE ? CLERK_PUBLISHABLE_KEY || null : null,
   local_auth: ALLOW_LOCAL_AUTH,
   demo_mode: DEMO_MODE,
 };

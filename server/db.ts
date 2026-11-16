@@ -360,6 +360,22 @@ class DatabaseManager {
     return null;
   }
 
+  /**
+   * Deletes the account and everything owned by it. The foreign keys cascade, so
+   * warranties, documents and notifications go with it; stored objects are
+   * removed by the caller before this runs.
+   */
+  public async deleteUser(id: string): Promise<boolean> {
+    if (this.isPostgres && this.pgPool) {
+      const res = await this.pgPool.query(`DELETE FROM users WHERE id = $1`, [id]);
+      return (res.rowCount || 0) > 0;
+    } else if (this.sqliteDb) {
+      const res = this.sqliteDb.prepare(`DELETE FROM users WHERE id = ?`).run(id);
+      return res.changes > 0;
+    }
+    return false;
+  }
+
   /** Clerk users start with `<id>@clerk.user` until a real address is known. */
   private isPlaceholderClerkEmail(email: string | null | undefined): boolean {
     return !email || email.trim().toLowerCase().endsWith('@clerk.user');

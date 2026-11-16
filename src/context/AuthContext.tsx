@@ -25,6 +25,8 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isClerkEnabled: boolean;
+  /** True when this deployment also accepts email + password sessions. */
+  localAuthEnabled: boolean;
   demoMode: boolean;
   login: (email: string, pass: string) => Promise<void>;
   register: (name: string, email: string, pass: string) => Promise<void>;
@@ -106,7 +108,15 @@ function useServerAuthConfig(): ClientAuthConfig | null {
 /**
  * Internal Auth bridge that synchronizes the Clerk session with backend PostgreSQL
  */
-function ClerkAuthBridge({ children, demoMode }: { children: React.ReactNode; demoMode: boolean }) {
+function ClerkAuthBridge({
+  children,
+  demoMode,
+  localAuth,
+}: {
+  children: React.ReactNode;
+  demoMode: boolean;
+  localAuth: boolean;
+}) {
   const { user: clerkUser, isLoaded: isClerkLoaded, isSignedIn } = useClerkUser();
   const { getToken } = useClerkAuth();
   const clerk = useClerk();
@@ -227,6 +237,7 @@ function ClerkAuthBridge({ children, demoMode }: { children: React.ReactNode; de
         user,
         loading: !isClerkLoaded || loading,
         isClerkEnabled: true,
+        localAuthEnabled: localAuth,
         demoMode,
         login,
         register,
@@ -293,6 +304,7 @@ function LocalAuthProvider({ children, demoMode }: { children: React.ReactNode; 
         user,
         loading,
         isClerkEnabled: false,
+        localAuthEnabled: true,
         demoMode,
         login,
         register,
@@ -322,7 +334,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   if (config.clerk_enabled && keyMatches) {
     return (
       <ClerkProvider publishableKey={publishableKey}>
-        <ClerkAuthBridge demoMode={config.demo_mode}>{children}</ClerkAuthBridge>
+        <ClerkAuthBridge demoMode={config.demo_mode} localAuth={config.local_auth}>
+          {children}
+        </ClerkAuthBridge>
       </ClerkProvider>
     );
   }

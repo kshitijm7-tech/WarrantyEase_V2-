@@ -59,8 +59,9 @@ it reports, so it can never show a sign-in form that the server would reject.
 
 | Config | What the deployment does |
 | --- | --- |
-| `clerk_enabled: true` | The Clerk widget is used. Every request carries a fresh Clerk session token, verified server-side with `@clerk/backend`; ownership is keyed on the verified `sub`. |
-| `clerk_enabled: false`, `local_auth: true` | Email + password is used instead: bcrypt hashes, an httpOnly session cookie, and the same ownership rules. |
+| `clerk_enabled: true`, `local_auth: false` | Clerk only. Every request carries a fresh Clerk session token, verified server-side with `@clerk/backend`; ownership is keyed on the verified `sub`. |
+| `clerk_enabled: true`, `local_auth: true` | Both. The Clerk widget is rendered first, with the email + password form below it — used when the deployment holds a development instance. |
+| `clerk_enabled: false`, `local_auth: true` | Email + password only: bcrypt hashes, an httpOnly session cookie, and the same ownership rules. |
 
 ### Why a Clerk development instance falls back
 
@@ -70,10 +71,13 @@ cookie, and any other visitor gets `dev_browser_unauthenticated` and is sent to 
 dashboard — which is why a deployed app on a `pk_test_` key appears to be stuck right after
 signing in.
 
-The server therefore offers Clerk only when it holds a `sk_live_` key **and** the publishable
-key is not from a different environment. That is exactly the state this project is in today:
-`/api/v1/auth/config` reports `clerk_environment: "development"`, so sign-in runs on the
-email/password fallback. `ALLOW_LOCAL_AUTH=true|false` still forces either behaviour.
+Clerk is only mounted when a secret key is configured and it agrees with the publishable key's
+environment. Whether Clerk *alone* can serve the public is separate: on a production server
+that is only true for a `sk_live_` instance. With the development instance this project
+currently holds, `/api/v1/auth/config` reports `clerk_enabled: true, clerk_public: false,
+clerk_environment: "development"`, so the deployed app shows the Clerk widget for the owner
+and the working email/password form for everyone else. `ALLOW_LOCAL_AUTH=true|false` forces
+either behaviour.
 
 ### Switching to the real Clerk instance
 
@@ -105,6 +109,18 @@ real Clerk session tokens through a Backend API sign-in ticket, so it needs `CLE
 and at least one existing Clerk user (override with `CLERK_SMOKE_USER_IDS=user_a,user_b`).
 Against a development instance the token exchange is refused by Clerk, and the script reports
 `SKIP` instead of a pass.
+
+### Smoke-test cleanup
+
+Each run removes what it created, including its throwaway accounts, through
+`DELETE /api/v1/auth/account` (deletes the caller's account, its invoices and every owned row).
+Rows left by older runs can be removed with:
+
+```bash
+node --env-file=.env scripts/cleanup-smoke-users.mjs                       # dry run
+node --env-file=.env scripts/cleanup-smoke-users.mjs --apply               # delete
+node --env-file=.env scripts/cleanup-smoke-users.mjs --apply --pattern='livesmoke%@example.com'
+```
 
 ## Local development
 
