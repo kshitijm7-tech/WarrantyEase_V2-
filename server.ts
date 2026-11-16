@@ -95,8 +95,26 @@ async function startServer() {
   } else {
     // dist-server/server.js lives beside dist/, so resolve from the project root
     const distPath = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(
+      express.static(distPath, {
+        setHeaders: (res, filePath) => {
+          // The HTML shell must always be revalidated (it names the hashed bundle).
+          if (/index\.html$/.test(filePath)) {
+            res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+            return;
+          }
+          // Hashed assets never change under the same name.
+          if (/[\\/]assets[\\/]/.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
     app.get('*', (req, res) => {
+      // The HTML shell is what names the hashed bundle, so it must always be
+      // revalidated. Caching it keeps serving the previous deploy's bundle to
+      // returning visitors, which silently undoes every frontend fix.
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
