@@ -111,6 +111,17 @@ async function startServer() {
       })
     );
     app.get('*', (req, res) => {
+      // Only real navigations get the SPA shell. A missing asset must answer 404:
+      // a document cached before a deploy asks for the previous bundle, and
+      // returning HTML there makes the browser refuse it as a module and render a
+      // blank page instead of failing visibly.
+      const acceptsHtml = String(req.headers.accept || '').includes('text/html');
+      const looksLikeFile = /\.[a-z0-9]{1,8}$/i.test(req.path);
+      if (!acceptsHtml || looksLikeFile) {
+        res.status(404).type('text/plain').send('Not found');
+        return;
+      }
+
       // The HTML shell is what names the hashed bundle, so it must always be
       // revalidated. Caching it keeps serving the previous deploy's bundle to
       // returning visitors, which silently undoes every frontend fix.
